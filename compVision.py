@@ -76,12 +76,12 @@ def on_trackbar(val):
 # left, top, right, bottom: rectangle parameters for detection
 # colour: to draw detection rectangle in
 
-def drawPred(image, class_name, confidence, left, top, right, bottom, colour):
+def drawPred(image, class_name, distance, left, top, right, bottom, colour):
     # Draw a bounding box.
     cv2.rectangle(image, (left, top), (right, bottom), colour, 3)
 
     # construct label
-    label = '%s:%.2fm' % (class_name, confidence)
+    label = '%s:%.2fm' % (class_name, distance)
 
     #Display the label at the top of the bounding box
     labelSize, baseLine = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.3, 1)
@@ -485,7 +485,8 @@ for filename_left in left_file_list:
         
         distances_L = []
         distances_R = []
-        closest_L = 0
+        closest_L = ('', 0)
+        closest_R = ('', 0)
         # draw resulting detections on left image
         for detected_object in range(0, len(boxes_L)):
             box = boxes_L[detected_object]
@@ -496,25 +497,32 @@ for filename_left in left_file_list:
             
             #find midpoint of box and compute the distance from car
             midpoint = centers_L[box]
-            
             distance_to_obj = point_to_3d_dist(disparity_scaled, max_disparity, midpoint[0], midpoint[1])
-            distances_L.append(distance_to_obj)
-            detect_class = classes[classIDs_L[detected_object]]
+            
+            detect_class = classes[classIDs_L[detected_object]] # name of class that was detected
+            
+            if distance_to_obj != -1: # -1 means that there is no disparity data to compute distance with4
+                if len(distances_L) > 0:
+                    if distance_to_obj == max(distances_L):
+                        closest_L = (detect_class, distance_to_obj)
+                else:
+                    closest_L = (detect_class, distance_to_obj)
+                distances_L.append(distance_to_obj)
             
             # colour the box dependent of the class of the object
-            if(detect_class == 'car'):
+            if detect_class == 'car':
                 colour = (255, 0, 0)
-            elif(detect_class == 'truck'):
+            elif detect_class == 'truck':
                 colour = (0, 255, 255)
-            elif(detect_class == 'bus'):
+            elif detect_class == 'bus':
                 colour = (0, 0, 255)
-            elif(detect_class == 'person'):
+            elif detect_class == 'person':
                 colour = (255, 255, 255)
             else:
                 colour = (255, 178, 50)
-            #print(confidences_L[detected_object])
-            #line = str(confidences_L[detected_object]) + ", " + str(distance_to_obj)
+            
             drawPred(imgL, detect_class, distance_to_obj, left, top, left + width, top + height, colour)
+            
         # draw resulting detections on right image
         for detected_object in range(0, len(boxes_R)):
             box = boxes_R[detected_object]
@@ -525,27 +533,45 @@ for filename_left in left_file_list:
             
             detect_class = classes[classIDs_R[detected_object]]
             
-            #find midpoint of box and compute the distance from car
+            # find midpoint of box and compute the distance from car
             midpoint = centers_R[box]
-            
             distance_to_obj = point_to_3d_dist(disparity_scaled, max_disparity, midpoint[0], midpoint[1])
-            distances_R.append(distance_to_obj)
-            detect_class = classes[classIDs_R[detected_object]]
+            
+            detect_class = classes[classIDs_R[detected_object]] # name of class that was detected
+            
+            if distance_to_obj != -1: # -1 means that there is no disparity data to compute distance with
+                if(len(distances_R) > 0):
+                    if distance_to_obj == max(distances_R):
+                        closest_R = (detect_class, distance_to_obj)
+                else:
+                    closest_R = (detect_class, distance_to_obj)
+                distances_R.append(distance_to_obj)
             
             # colour the box dependent of the class of the object
-            if(detect_class == 'car'):
+            if detect_class == 'car':
                 colour = (255, 0, 0)
-            elif(detect_class == 'truck'):
+            elif detect_class == 'truck':
                 colour = (0, 255, 255)
-            elif(detect_class == 'bus'):
+            elif detect_class == 'bus':
                 colour = (0, 0, 255)
-            elif(detect_class == 'person'):
+            elif detect_class == 'person':
                 colour = (255, 255, 255)
             else:
                 colour = (255, 178, 50)
             
             drawPred(imgR, detect_class, distance_to_obj, left, top, left + width, top + height, colour)
-
+            
+        # print closest object in each camera to console
+        if not closest_L[0] == "":
+            print("Closest object left camera: %s at %.2f meters" % (closest_L[0],closest_L[1]))
+        else:
+            print("No valid distance estimate to report on left camera")
+        if not closest_R[0] == "":
+            print("Closest object right camera: %s at %.2f meters" % (closest_R[0],closest_R[1]))
+        else:
+            print("No valid distance estimate to report on right camera")
+        print()
+        
         # Put efficiency information. The function getPerfProfile returns the overall time for inference(t) and the timings for each of the layers(in layersTimes)
         t, _ = net.getPerfProfile()
         label = 'Inference time: %.2f ms' % (t * 1000.0 / cv2.getTickFrequency())
