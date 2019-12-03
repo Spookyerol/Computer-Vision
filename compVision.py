@@ -81,14 +81,14 @@ def drawPred(image, class_name, confidence, left, top, right, bottom, colour):
     cv2.rectangle(image, (left, top), (right, bottom), colour, 3)
 
     # construct label
-    label = '%s:%.2f' % (class_name, confidence)
+    label = '%s:%.2fm' % (class_name, confidence)
 
     #Display the label at the top of the bounding box
-    labelSize, baseLine = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+    labelSize, baseLine = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.3, 1)
     top = max(top, labelSize[1])
     cv2.rectangle(image, (left, top - round(1.5*labelSize[1])),
         (left + round(1.5*labelSize[0]), top + baseLine), (255, 255, 255), cv2.FILLED)
-    cv2.putText(image, label, (left, top), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0,0,0), 1)
+    cv2.putText(image, label, (left, top), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0,0,0), 1)
 
 #####################################################################
 # Remove the bounding boxes with low confidence using non-maxima suppression
@@ -113,27 +113,31 @@ def postprocess(image, results, threshold_confidence, threshold_nms):
     classIds = []
     confidences = []
     boxes = []
+    centers = {}
     for result in results:
         for detection in result:
             scores = detection[5:]
             classId = np.argmax(scores)
-            confidence = scores[classId]
-            if confidence > threshold_confidence:
-                center_x = int(detection[0] * frameWidth)
-                center_y = int(detection[1] * frameHeight)
-                width = int(detection[2] * frameWidth)
-                height = int(detection[3] * frameHeight)
-                left = int(center_x - width / 2)
-                top = int(center_y - height / 2)
-                classIds.append(classId)
-                confidences.append(float(confidence))
-                boxes.append([left, top, width, height])
+            if classes[classId] == 'car' or classes[classId] == 'truck' or classes[classId] == 'bus' or classes[classId] == 'person':
+                confidence = scores[classId]
+                if confidence > threshold_confidence:
+                    center_x = int(detection[0] * frameWidth)
+                    center_y = int(detection[1] * frameHeight)
+                    width = int(detection[2] * frameWidth)
+                    height = int(detection[3] * frameHeight)
+                    left = int(center_x - width / 2)
+                    top = int(center_y - height / 2)
+                    classIds.append(classId)
+                    confidences.append(float(confidence))
+                    boxes.append((left, top, width, height))
+                    centers[(left, top, width, height)] = (center_x, center_y)
 
     # Perform non maximum suppression to eliminate redundant overlapping boxes with
     # lower confidences
     classIds_nms = []
     confidences_nms = []
     boxes_nms = []
+    centers_nms = {} # the center coordinates of the corresponding bounding box
 
     indices = cv2.dnn.NMSBoxes(boxes, confidences, threshold_confidence, threshold_nms)
     for i in indices:
@@ -141,9 +145,10 @@ def postprocess(image, results, threshold_confidence, threshold_nms):
         classIds_nms.append(classIds[i])
         confidences_nms.append(confidences[i])
         boxes_nms.append(boxes[i])
+        centers_nms[boxes[i]] = centers[boxes[i]]
 
     # return post processed lists of classIds, confidences and bounding boxes
-    return (classIds_nms, confidences_nms, boxes_nms)
+    return (classIds_nms, confidences_nms, boxes_nms, centers_nms)
 
 ####################################################################
 # Get the names of the output layers of the CNN network
@@ -180,8 +185,8 @@ except:
 
 confThreshold = 0.5  # Confidence threshold
 nmsThreshold = 0.4   # Non-maximum suppression threshold
-inpWidth = 256       # Width of network's input image
-inpHeight = 256      # Height of network's input image
+inpWidth = 348       # Width of network's input image
+inpHeight = 348      # Height of network's input image
 
 # Load names of classes from file
 
@@ -260,11 +265,11 @@ def point_to_3d_dist(disparity, max_disparity, x, y):
     # and then we get reasonable scaling in X and Y output if we change
     # Z to Zmax in the lines X = ....; Y = ...; below
 
-    Zmax = ((f * B) / 2);
+    # Zmax = ((f * B) / 2);
 
-            # if we have a valid non-zero disparity
-    
-    distance = 0
+    distance = -1
+
+    # if we have a valid non-zero disparity
     
     if (disparity[y,x] > 0):
 
@@ -274,8 +279,8 @@ def point_to_3d_dist(disparity, max_disparity, x, y):
 
         Z = (f * B) / disparity[y,x];
 
-        X = ((x - image_centre_w) * Zmax) / f;
-        Y = ((y - image_centre_h) * Zmax) / f;
+        X = ((x - image_centre_w) * Z) / f;
+        Y = ((y - image_centre_h) * Z) / f;
         #print(x,y, disparity[y,x])
         
         # compute distance as vector magnitude
@@ -399,6 +404,10 @@ for filename_left in left_file_list:
         imgL = cv2.imread(full_path_filename_left, cv2.IMREAD_COLOR)
         imgR = cv2.imread(full_path_filename_right, cv2.IMREAD_COLOR) #args.video_file = imgL, imgR
         
+        # bilateral pass to reduce noise
+        imgL = cv2.bilateralFilter(imgL,3,30,1)
+        imgR = cv2.bilateralFilter(imgR,3,30,1)
+        
         print("-- files loaded successfully");
         print();
 
@@ -407,12 +416,16 @@ for filename_left in left_file_list:
 
         grayL = cv2.cvtColor(imgL,cv2.COLOR_BGR2GRAY);
         grayR = cv2.cvtColor(imgR,cv2.COLOR_BGR2GRAY); #args.video_file = grayL, grayR
+        
+        #grayL = cv2.Laplacian(grayL, cv2.CV_16S, ksize=3)
+        #grayR = cv2.Laplacian(grayL, cv2.CV_16S, ksize=3)
 
         # perform preprocessing - raise to the power, as this subjectively appears
         # to improve subsequent disparity calculation
 
         grayL = np.power(grayL, 0.75).astype('uint8');
         grayR = np.power(grayR, 0.75).astype('uint8');
+        
 
         # compute disparity image from undistorted and rectified stereo images
         # that we have loaded
@@ -467,10 +480,12 @@ for filename_left in left_file_list:
 
         # remove the bounding boxes with low confidence
         confThreshold = cv2.getTrackbarPos(trackbarName,windowNameL) / 100
-        classIDs_L, confidences_L, boxes_L = postprocess(imgL, resultsL, confThreshold, nmsThreshold)
-        classIDs_R, confidences_R, boxes_R = postprocess(imgR, resultsR, confThreshold, nmsThreshold)
+        classIDs_L, confidences_L, boxes_L, centers_L = postprocess(imgL, resultsL, confThreshold, nmsThreshold)
+        classIDs_R, confidences_R, boxes_R, centers_R = postprocess(imgR, resultsR, confThreshold, nmsThreshold)
         
-        distances = []
+        distances_L = []
+        distances_R = []
+        closest_L = 0
         # draw resulting detections on left image
         for detected_object in range(0, len(boxes_L)):
             box = boxes_L[detected_object]
@@ -480,10 +495,10 @@ for filename_left in left_file_list:
             height = box[3]
             
             #find midpoint of box and compute the distance from car
-            mid_width = width // 2
-            mid_height = height // 2
-            distance_to_obj = point_to_3d_dist(disparity_scaled, max_disparity, left + mid_width, top - mid_height)
-            distances.append(distance_to_obj)
+            midpoint = centers_L[box]
+            
+            distance_to_obj = point_to_3d_dist(disparity_scaled, max_disparity, midpoint[0], midpoint[1])
+            distances_L.append(distance_to_obj)
             detect_class = classes[classIDs_L[detected_object]]
             
             # colour the box dependent of the class of the object
@@ -492,14 +507,14 @@ for filename_left in left_file_list:
             elif(detect_class == 'truck'):
                 colour = (0, 255, 255)
             elif(detect_class == 'bus'):
-                colour = (255, 0, 0)
+                colour = (0, 0, 255)
             elif(detect_class == 'person'):
                 colour = (255, 255, 255)
             else:
                 colour = (255, 178, 50)
             #print(confidences_L[detected_object])
             #line = str(confidences_L[detected_object]) + ", " + str(distance_to_obj)
-            drawPred(imgL, detect_class, confidences_L[detected_object], left, top, left + width, top + height, colour)
+            drawPred(imgL, detect_class, distance_to_obj, left, top, left + width, top + height, colour)
         # draw resulting detections on right image
         for detected_object in range(0, len(boxes_R)):
             box = boxes_R[detected_object]
@@ -510,19 +525,26 @@ for filename_left in left_file_list:
             
             detect_class = classes[classIDs_R[detected_object]]
             
+            #find midpoint of box and compute the distance from car
+            midpoint = centers_R[box]
+            
+            distance_to_obj = point_to_3d_dist(disparity_scaled, max_disparity, midpoint[0], midpoint[1])
+            distances_R.append(distance_to_obj)
+            detect_class = classes[classIDs_R[detected_object]]
+            
             # colour the box dependent of the class of the object
             if(detect_class == 'car'):
                 colour = (255, 0, 0)
             elif(detect_class == 'truck'):
                 colour = (0, 255, 255)
             elif(detect_class == 'bus'):
-                colour = (255, 0, 0)
+                colour = (0, 0, 255)
             elif(detect_class == 'person'):
                 colour = (255, 255, 255)
             else:
                 colour = (255, 178, 50)
             
-            drawPred(imgR, classes[classIDs_R[detected_object]], confidences_R[detected_object], left, top, left + width, top + height, colour)
+            drawPred(imgR, detect_class, distance_to_obj, left, top, left + width, top + height, colour)
 
         # Put efficiency information. The function getPerfProfile returns the overall time for inference(t) and the timings for each of the layers(in layersTimes)
         t, _ = net.getPerfProfile()
