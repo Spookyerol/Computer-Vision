@@ -185,8 +185,8 @@ except:
 
 confThreshold = 0.5  # Confidence threshold
 nmsThreshold = 0.4   # Non-maximum suppression threshold
-inpWidth = 348       # Width of network's input image
-inpHeight = 348      # Height of network's input image
+inpWidth = 416       # Width of network's input image
+inpHeight = 416      # Height of network's input image
 
 # Load names of classes from file
 
@@ -264,13 +264,57 @@ def point_to_3d_dist(disparity, max_disparity, x, y):
     # assume a minimal disparity of 2 pixels is possible to get Zmax
     # and then we get reasonable scaling in X and Y output if we change
     # Z to Zmax in the lines X = ....; Y = ...; below
+    #[0:390,135:width]
+    # Zmax = ((f * B) / 2);
+    
+    cloudSize = 0
+    sumDisparity = 0
+    
+    for j in range(-5,6,1):
+        for i in range(-5,6,1):
+            # if we have a valid non-zero disparity
+            if (disparity[y+j,x+i] > 0):
+                # find the average disparity in the cloud
+                cloudSize += 1
+                sumDisparity += disparity[y+j,x+i]
+    
+    if (cloudSize != 0): # there was valid disparity in the cloud
+        disparity = sumDisparity / cloudSize
+        
+        # calculate corresponding 3D point [X, Y, Z]
+    
+        # stereo lecture - slide 22 + 25
+        
+        Z = (f * B) / disparity;
+    
+        X = ((x - image_centre_w) * Z) / f;
+        Y = ((y - image_centre_h) * Z) / f;
+        #print(x,y, disparity[y,x])
+    
+        # compute distance as vector magnitude
+        distance = math.sqrt((X*X)+(Y*Y)+(Z*Z))
+    else:
+        distance = 0
+        
+    return distance;
 
+"""
+def point_to_3d_dist(disparity, max_disparity, x, y):
+
+    f = camera_focal_length_px;
+    B = stereo_camera_baseline_m;
+
+    height, width = disparity.shape[:2];
+
+    # assume a minimal disparity of 2 pixels is possible to get Zmax
+    # and then we get reasonable scaling in X and Y output if we change
+    # Z to Zmax in the lines X = ....; Y = ...; below
+    #[0:390,135:width]
     # Zmax = ((f * B) / 2);
 
     distance = -1
 
     # if we have a valid non-zero disparity
-    
     if (disparity[y,x] > 0):
 
         # calculate corresponding 3D point [X, Y, Z]
@@ -285,8 +329,9 @@ def point_to_3d_dist(disparity, max_disparity, x, y):
         
         # compute distance as vector magnitude
         distance = math.sqrt((X*X)+(Y*Y)+(Z*Z))
+        
     return distance;
-
+"""
 #####################################################################
 
 # project a set of 3D points back the 2D image domain
@@ -391,6 +436,7 @@ for filename_left in left_file_list:
     # check the file is a PNG file (left) and check a correspondoning right image
     # actually exists
 
+    score = 0
     if ('.png' in filename_left) and (os.path.isfile(full_path_filename_right)) :
         
         # init the windows for the two image frames
@@ -405,8 +451,8 @@ for filename_left in left_file_list:
         imgR = cv2.imread(full_path_filename_right, cv2.IMREAD_COLOR) #args.video_file = imgL, imgR
         
         # bilateral pass to reduce noise
-        imgL = cv2.bilateralFilter(imgL,3,30,1)
-        imgR = cv2.bilateralFilter(imgR,3,30,1)
+        #imgL = cv2.GaussianBlur(imgL,(5,5),0)
+        #imgR = cv2.GaussianBlur(imgR,(5,5),0)
         
         print("-- files loaded successfully");
         print();
@@ -417,26 +463,33 @@ for filename_left in left_file_list:
         grayL = cv2.cvtColor(imgL,cv2.COLOR_BGR2GRAY);
         grayR = cv2.cvtColor(imgR,cv2.COLOR_BGR2GRAY); #args.video_file = grayL, grayR
         
-        #grayL = cv2.Laplacian(grayL, cv2.CV_16S, ksize=3)
-        #grayR = cv2.Laplacian(grayL, cv2.CV_16S, ksize=3)
+        
+        #grayL = grayL - 2*cv2.Laplacian(grayL, cv2.CV_16S, ksize=3)
+        #grayR = grayR - 2*cv2.Laplacian(grayR, cv2.CV_16S, ksize=3)
 
-        # perform preprocessing - raise to the power, as this subjectively appears
-        # to improve subsequent disparity calculation
+        # perform preprocessing - perform Contrast Limited Adaptive Histogram Equalization 
+        # then raise to the power, as this subjectively appears to improve 
+        # subsequent disparity calculation
+        
+        clahe = cv2.createCLAHE(clipLimit=2, tileGridSize=(16, 16))
+        grayL = clahe.apply(grayL)
+        grayR = clahe.apply(grayR)
 
         grayL = np.power(grayL, 0.75).astype('uint8');
         grayR = np.power(grayR, 0.75).astype('uint8');
-        
 
         # compute disparity image from undistorted and rectified stereo images
         # that we have loaded
         # (which for reasons best known to the OpenCV developers is returned scaled by 16)
 
         disparity = stereoProcessor.compute(grayL,grayR);
-
         # filter out noise and speckles (adjust parameters as needed)
 
         dispNoiseFilter = 5; # increase for more agressive filtering
         cv2.filterSpeckles(disparity, 0, 4000, max_disparity - dispNoiseFilter);
+        
+        #grayL = cv2.GaussianBlur(grayL,(5,5),0)
+        #grayR = cv2.GaussianBlur(grayR,(5,5),0)
 
         # scale the disparity to 8-bit for viewing
         # divide by 16 and convert to 8-bit image (then range of values should
@@ -450,14 +503,14 @@ for filename_left in left_file_list:
         # crop disparity to chop out left part where there are with no disparity
         # as this area is not seen by both cameras and also
         # chop out the bottom area (where we see the front of car bonnet)
-
+        
         if (crop_disparity):
             width = np.size(disparity_scaled, 1);
             disparity_scaled = disparity_scaled[0:390,135:width];
 
         # display image (scaling it to the full 0->255 range based on the number
         # of disparities in use for the stereo part)
-
+        
         cv2.imshow("disparity", (disparity_scaled * (256. / max_disparity)).astype(np.uint8));
         
         # project to a 3D colour point cloud (with or without colour)
@@ -501,9 +554,9 @@ for filename_left in left_file_list:
             
             detect_class = classes[classIDs_L[detected_object]] # name of class that was detected
             
-            if distance_to_obj != -1: # -1 means that there is no disparity data to compute distance with4
+            if distance_to_obj != 0: # -1 means that there is no disparity data to compute distance with
                 if len(distances_L) > 0:
-                    if distance_to_obj == max(distances_L):
+                    if distance_to_obj <= min(distances_L):
                         closest_L = (detect_class, distance_to_obj)
                 else:
                     closest_L = (detect_class, distance_to_obj)
@@ -539,9 +592,9 @@ for filename_left in left_file_list:
             
             detect_class = classes[classIDs_R[detected_object]] # name of class that was detected
             
-            if distance_to_obj != -1: # -1 means that there is no disparity data to compute distance with
+            if distance_to_obj != 0: # -1 means that there is no disparity data to compute distance with
                 if(len(distances_R) > 0):
-                    if distance_to_obj == max(distances_R):
+                    if distance_to_obj <= min(distances_R):
                         closest_R = (detect_class, distance_to_obj)
                 else:
                     closest_R = (detect_class, distance_to_obj)
