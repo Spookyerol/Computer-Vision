@@ -1,14 +1,39 @@
 #####################################################################
 
 # dense stereo computer vision for object detection and ranging
+# Author: Erdal Guclu
 
-# Author : Toby Breckon, toby.breckon@durham.ac.uk
+### Code and comments associated with dense stereo vision and camera calibration heavily adapted from article below ###
+### For more details check yolo.py ###
+"""
+@Article{mroz12stereo,
+  author = 	 {Mroz, F. and Breckon, T.P.},
+  title = 	 {An Empirical Comparison of Real-time Dense Stereo Approaches for use in the Automotive Environment},
+  journal =  {EURASIP Journal on Image and Video Processing},
+  year =     {2012},
+  volume = 	 {2012},
+  number = 	 {13},
+  pages = 	 {1-19},
+  publisher = {Springer},
+  url = 	 {http://community.dur.ac.uk/toby.breckon/publications/papers/mroz12stereo.pdf},
+  doi = 	 {10.1186/1687-5281-2012-13}
+}
+"""
 
-# Copyright (c) 2017 Department of Computer Science,
-#                    Durham University, UK
-# License : LGPL - http://www.gnu.org/licenses/lgpl.html
+### Code related to 3D projection and video file handling adapted from repository below ###
+### For more details check stereo_py_3d.py and stereo_disparity.py ###
+"""
+project SGBM disparity to 3D points for am example pair
+of rectified stereo images from a  directory structure
+of left-images / right-images with filesname DATE_TIME_STAMP_{L|R}.png
 
-# see the README for instructions on how to run the script
+Author : Toby Breckon, toby.breckon@durham.ac.uk
+url : https://github.com/tobybreckon/stereo-disparity
+Copyright (c) 2017 Deparment of Computer Science,
+                   Durham University, UK
+License : LGPL - http://www.gnu.org/licenses/lgpl.html
+"""
+
 
 #####################################################################
 
@@ -229,7 +254,6 @@ def point_to_3d_dist(disparity, max_disparity, x, y):
 
 skip_forward_file_pattern = ""; # set to timestamp to skip forward to
 
-crop_disparity = False; # display full or cropped disparity image
 pause_playback = False; # pause until key press after each image
 
 #####################################################################
@@ -387,14 +411,6 @@ for filename_left in left_file_list:
         _, disparity = cv2.threshold(disparity,0, max_disparity * 16, cv2.THRESH_TOZERO);
         disparity_scaled = (disparity / 16.).astype(np.uint8);
 
-        # crop disparity to chop out left part where there are with no disparity
-        # as this area is not seen by both cameras and also
-        # chop out the bottom area (where we see the front of car bonnet)
-        
-        if (crop_disparity):
-            width = np.size(disparity_scaled, 1);
-            disparity_scaled = disparity_scaled[0:390,135:width];
-
         # display image (scaling it to the full 0->255 range based on the number
         # of disparities in use for the stereo part)
         
@@ -482,7 +498,6 @@ for filename_left in left_file_list:
         # keyboard input for exit (as standard), save disparity and cropping
         # exit - x
         # save - s
-        # crop - c
         # pause - space
         if(frame_count == 30):
             break
@@ -494,8 +509,6 @@ for filename_left in left_file_list:
             cv2.imwrite("sgbm-disparty.png", disparity_scaled);
             cv2.imwrite("left.png", imgL);
             cv2.imwrite("right.png", imgR);
-        elif (key == ord('c')):     # crop
-            crop_disparity = not(crop_disparity);
         elif (key == ord(' ')):     # pause (on next frame)
             pause_playback = not(pause_playback);
     else:
