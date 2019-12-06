@@ -12,10 +12,13 @@ In order to run the script with default settings simply navigate to the director
 the command compVision.py on windows (./compVision.py). In order to pass parameters use the
 options described above followed by what every parameter. e.g "compVision.py -ni 256" will
 set the network input size to 256x256.
+
 To supply video file by default the program will search for directory "TTBB-durham-02-10-17-sub10"
 within the same directory as the source and will look for the subdirectories "left-images" and
 "right-images". So specify a custom path to the video frames modify 
-master_path_to_dataset = "TTBB-durham-02-10-17-sub10" on line 34.
+master_path_to_dataset = "TTBB-durham-02-10-17-sub10" on line 59.
 
 Note for option -ni only the values 128,256,416,832 have been tested, other values might result
 in errors.
+
+Credits to relevant authors can be found in the comments at the top of compVision.py
