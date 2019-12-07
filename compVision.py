@@ -499,8 +499,6 @@ for filename_left in left_file_list:
         # exit - x
         # save - s
         # pause - space
-        if(frame_count == 30):
-            break
         
         key = cv2.waitKey(40 * (not(pause_playback))) & 0xFF; # wait 40ms (i.e. 1000ms / 25 fps = 40 ms)
         if (key == ord('x')):       # exit
